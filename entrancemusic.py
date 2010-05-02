@@ -2,9 +2,10 @@
 import re, ast, restkit, time, jsonlib, logging, traceback, datetime, optparse
 from dateutil import tz
 from rdflib import Literal, Variable
-from pymongo import Connection
+from pymongo import Connection, DESCENDING
 log = logging.getLogger()
 logging.basicConfig(level=logging.INFO)
+logging.getLogger('restkit.client').setLevel(logging.WARN)
 
 def jsValue(js, variableName):
     # using literal_eval instead of json parser to handle the trailing commas
@@ -39,17 +40,14 @@ def routerEndpoints():
         for k, v in repl.items():
             url = url.replace(k, v)
 
-        m = re.match(r"http://(.*?):(.*?)@(.*)", url)   
-        r = restkit.Resource('http://%s' % m.group(3))
-        r.add_authorization(restkit.httpc.BasicAuth((m.group(1), m.group(2))))
-        routers.append(r)
+        routers.append(restkit.Resource(url))
     return routers, knownMacAddr
 
 def getPresentMacAddrs(routers):
     addrs = [] # (addr, signalStrength)
     for router in routers:
         log.debug("GET %s", router)
-        data = router.get()
+        data = router.get().body
         for _, mac, signal in jsValue(data, 'wldev'):
             addrs.append((mac, signal))
     return addrs
@@ -62,7 +60,7 @@ if opts.v:
     log.setLevel(logging.DEBUG)
 
 routers, knownMacAddr = routerEndpoints()
-getName = lambda mac: knownMacAddr.get(mac, 'unknown %s' % mac)
+getName = lambda mac: knownMacAddr.get(mac, 'unknown %s' % mac) # todo: the router actually gets device names in some cases, so those would be nice here. 
 mongo = Connection('bang', 27017)['visitor']['visitor']
 
 lastSeenMac = set()
@@ -71,12 +69,21 @@ hub = restkit.Resource(
     "http://slash:9049/"
     )
 
-def sendMsg(msg):
+def sendMsg(msg, hubPost=True):
     """adds created time, writes mongo and hub"""
     log.info(str(msg))
-    hub.post("visitorNet", payload=jsonlib.dumps(msg))
+    if hubPost:
+        hub.post("visitorNet", payload=jsonlib.dumps(msg))
     msg['created'] = datetime.datetime.now(tz.gettz('UTC'))
     mongo.save(msg)
+
+def deltaSinceLastArrive(name):
+    results = list(mongo.find({'arrive' : name}).sort('created', DESCENDING).limit(1))
+    if not results:
+        return datetime.timedelta.max
+    now = datetime.datetime.now(tz.gettz('UTC'))
+    last = results[0]['created'].replace(tzinfo=tz.gettz('UTC'))
+    return now - last
     
 while True:
     try:
@@ -85,7 +92,9 @@ while True:
         for mac, signal in getPresentMacAddrs(routers):
             newMac.add(mac)
         for mac in newMac.difference(lastSeenMac):
-            sendMsg({"arrive" : getName(mac)})
+            dt = deltaSinceLastArrive(getName(mac))
+            hubPost = dt > datetime.timedelta(hours=1)
+            sendMsg({"arrive" : getName(mac)}, hubPost=hubPost)
         for mac in lastSeenMac.difference(newMac):
             sendMsg({"leave" : getName(mac)})
 
