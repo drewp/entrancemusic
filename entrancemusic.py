@@ -44,14 +44,16 @@ def routerEndpoints():
     return routers, knownMacAddr
 
 def getPresentMacAddrs(routers):
-    addrs = [] # (addr, signalStrength)
+    addrs = [] # (addr, signalStrength, name)
+    macName = {}
     for router in routers:
         log.debug("GET %s", router)
         data = router.get().body
+        for (name, ip, mac, lease) in jsValue(data, 'dhcpd_lease'):
+            macName[mac] = name
         for _, mac, signal in jsValue(data, 'wldev'):
-            addrs.append((mac, signal))
+            addrs.append((mac, signal, macName.get(mac, None)))
     return addrs
-
 
 parser = optparse.OptionParser()
 parser.add_option("-v", action="store_true")
@@ -60,8 +62,10 @@ if opts.v:
     log.setLevel(logging.DEBUG)
 
 routers, knownMacAddr = routerEndpoints()
-getName = lambda mac: knownMacAddr.get(mac, 'unknown %s' % mac) # todo: the router actually gets device names in some cases, so those would be nice here. 
 mongo = Connection('bang', 27017)['visitor']['visitor']
+
+def getName(mac, netName):
+    return knownMacAddr.get(mac, netName or 'unknown %s' % mac)
 
 lastSeenMac = set()
 hub = restkit.Resource(
@@ -89,14 +93,23 @@ while True:
     try:
         newMac = set()
         log.debug("scan")
-        for mac, signal in getPresentMacAddrs(routers):
-            newMac.add(mac)
-        for mac in newMac.difference(lastSeenMac):
-            dt = deltaSinceLastArrive(getName(mac))
+        for mac, signal, name in getPresentMacAddrs(routers):
+            newMac.add((mac, name))
+        for mac, name in newMac.difference(lastSeenMac):
+            dt = deltaSinceLastArrive(getName(mac, name))
             hubPost = dt > datetime.timedelta(hours=1)
-            sendMsg({"arrive" : getName(mac)}, hubPost=hubPost)
-        for mac in lastSeenMac.difference(newMac):
-            sendMsg({"leave" : getName(mac)})
+            sendMsg({"sensor" : "wifi",
+                     "address" : mac,
+                     "name" : getName(mac, name),
+                     "networkName" : name,
+                     "action" : "arrive"},
+                    hubPost=hubPost)
+        for mac, name in lastSeenMac.difference(newMac):
+            sendMsg({"sensor" : "wifi",
+                     "address" : mac,
+                     "name" : getName(mac, name),
+                     "networkName" : name,
+                     "action" : "leave"})
 
         lastSeenMac = newMac
     except Exception, e:

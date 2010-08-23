@@ -8,15 +8,15 @@ import web, sys, jsonlib, subprocess, os
 class visitorNet(object):
     def POST(self):
         data = jsonlib.loads(web.data())
-        if 'arrive' in data:
+        if data.get('action') == 'arrive':
             snd = ('/my/music/entrance/%s.wav' %
-                   data['arrive'].replace(' ', '_').replace(':', '_'))
+                   data['name'].replace(' ', '_').replace(':', '_'))
             if os.path.exists(snd):
                 subprocess.call(['aplay', snd])
                 return 'ok'
             else:
                 return "no sound for %s" % snd
-        if 'leave' in data:
+        if data.get('action') == 'leave':
             subprocess.call(['aplay', '/my/music/entrance/leave.wav'])
             return 'ok'
         return "nothing to do"
