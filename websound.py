@@ -4,6 +4,7 @@
 play sounds according to POST requests. cooperate with pubsubhubbub
 """
 import web, sys, jsonlib, subprocess, os
+import speechd.client
 
 sensorWords = {"wifi" : "why fi",
                "bluetooth" : "bluetooth"}
@@ -18,7 +19,11 @@ def soundOut(preSound=None, speech=None, postSound=None):
                 subprocess.call(['aplay', postSound])
 
     if speech:
-        speechClient.speak(speech, playPost)
+        try:
+            speechClient.speak(speech, playPost)
+        except speechd.client.SSIPCommunicationError, e:
+            # fix this by getting restarted
+            raise SystemExit(str(e))
     else:
         playPost('end')
 
@@ -56,7 +61,6 @@ urls = (
 
 app = web.application(urls, globals(), autoreload=True)
 
-import speechd.client
 speechClient = speechd.client.Speaker("websound")
 
 if __name__ == '__main__':

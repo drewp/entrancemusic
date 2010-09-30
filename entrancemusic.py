@@ -65,7 +65,7 @@ routers, knownMacAddr = routerEndpoints()
 mongo = Connection('bang', 27017)['visitor']['visitor']
 
 def getName(mac, netName):
-    return knownMacAddr.get(mac, netName or 'unknown %s' % mac)
+    return knownMacAddr.get(mac, netName or 'no name')
 
 lastSeenMac = set()
 hub = restkit.Resource(
