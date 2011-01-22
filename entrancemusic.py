@@ -1,5 +1,5 @@
 #!bin/python
-import re, ast, restkit, time, jsonlib, logging, traceback, datetime, optparse
+import re, ast, restkit, time, jsonlib, logging, traceback, datetime, optparse, socket
 from dateutil import tz
 from rdflib import Literal, Variable
 from pymongo import Connection, DESCENDING
@@ -40,7 +40,7 @@ def routerEndpoints():
         for k, v in repl.items():
             url = url.replace(k, v)
 
-        routers.append(restkit.Resource(url))
+        routers.append(restkit.Resource(url, timeout=2))
     return routers, knownMacAddr
 
 def getPresentMacAddrs(routers):
@@ -48,7 +48,11 @@ def getPresentMacAddrs(routers):
     macName = {}
     for router in routers:
         log.debug("GET %s", router)
-        data = router.get().body
+        try:
+            data = router.get().body_string()
+        except socket.error:
+            log.warn("get on %s failed" % router)
+            continue
         for (name, ip, mac, lease) in jsValue(data, 'dhcpd_lease'):
             macName[mac] = name
         for _, mac, signal in jsValue(data, 'wldev'):
