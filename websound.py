@@ -9,14 +9,21 @@ import speechd.client
 sensorWords = {"wifi" : "why fi",
                "bluetooth" : "bluetooth"}
 
+def aplay(device, filename):
+    paDeviceName = {
+        'garage' : 'alsa_output.pci-0000_01_07.0.analog-stereo',
+        'living' : 'alsa_output.pci-0000_00_04.0.analog-stereo',
+        }[device]
+    subprocess.call(['paplay', '-d', paDeviceName, filename])
+
 def soundOut(preSound=None, speech=None, postSound=None):
     if preSound:
-        subprocess.call(['aplay', preSound])
+        aplay('living', preSound)
 
     def playPost(action):
         if action == 'end':
             if postSound is not None:
-                subprocess.call(['aplay', postSound])
+                aplay('living', postSound)
 
     if speech:
         try:
@@ -55,7 +62,28 @@ class visitorNet(object):
         
         return "nothing to do"
 
+class index(object):
+    def GET(self):
+        web.header('Content-type', 'text/html')
+        return '''
+<p><form action="speak" method="post">say: <input type="text" name="say"> <input type="submit"></form></p>
+<p><form action="testSound" method="post"> <input type="submit" value="test sound"></form></p>
+'''
+
+class speak(object):
+    def POST(self):
+        speechClient.speak(web.input()['say'])
+        return "sent"
+
+class testSound(object):
+    def POST(self):
+        soundOut(preSound='/my/music/entrance/leave.wav')
+        return 'ok'
+
 urls = (
+    r'/', 'index',
+    r'/speak', 'speak',
+    r'/testSound', 'testSound',
     r'/visitorNet', 'visitorNet',
     )
 
