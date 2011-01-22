@@ -71,7 +71,7 @@ mongo = Connection('bang', 27017)['visitor']['visitor']
 def getName(mac, netName):
     return knownMacAddr.get(mac, netName or 'no name')
 
-lastSeenMac = set()
+
 hub = restkit.Resource(
     # PSHB not working yet; "http://bang:9030/"
     "http://slash:9049/"
@@ -86,20 +86,24 @@ def sendMsg(msg, hubPost=True):
     mongo.save(msg)
 
 def deltaSinceLastArrive(name):
-    results = list(mongo.find({'arrive' : name}).sort('created', DESCENDING).limit(1))
+    results = list(mongo.find({'name' : name}).sort('created', DESCENDING).limit(1))
     if not results:
         return datetime.timedelta.max
     now = datetime.datetime.now(tz.gettz('UTC'))
     last = results[0]['created'].replace(tzinfo=tz.gettz('UTC'))
     return now - last
-    
-while True:
-    try:
+
+class Poll(object):
+    def __init__(self):
+        self.lastSeenMac = set()
+
+    def update(self):
+
         newMac = set()
         log.debug("scan")
         for mac, signal, name in getPresentMacAddrs(routers):
             newMac.add((mac, name))
-        for mac, name in newMac.difference(lastSeenMac):
+        for mac, name in newMac.difference(self.lastSeenMac):
             dt = deltaSinceLastArrive(getName(mac, name))
             hubPost = dt > datetime.timedelta(hours=1)
             sendMsg({"sensor" : "wifi",
@@ -108,16 +112,31 @@ while True:
                      "networkName" : name,
                      "action" : "arrive"},
                     hubPost=hubPost)
-        for mac, name in lastSeenMac.difference(newMac):
+        for mac, name in self.lastSeenMac.difference(newMac):
+            dt = deltaSinceLastArrive(getName(mac, name))
+            hubPost = dt > datetime.timedelta(hours=1)           
             sendMsg({"sensor" : "wifi",
                      "address" : mac,
                      "name" : getName(mac, name),
                      "networkName" : name,
-                     "action" : "leave"})
+                     "action" : "leave"},
+                    hubPost=hubPost)
 
-        lastSeenMac = newMac
-    except Exception, e:
-        traceback.print_exc()
-    time.sleep(5)
+        self.lastSeenMac = newMac
+    
+
+"""
+todo: don't announce a drop and then a quick re-add. shorten
+announcements of multiple devices on the same person showing up all
+together.
+"""
+if __name__ == '__main__':
+    poll = Poll()
+    while True:
+        try:
+            poll.update()
+        except Exception, e:
+            traceback.print_exc()
+        time.sleep(5)
 
     
